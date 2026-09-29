@@ -1,14 +1,16 @@
-import asyncio
 import logging
+import re
 import time
 from typing import List
 from app.core.github_client import fetch_repository_files
 from app.core.prioritizer import prioritize_files
-from app.core.chunker import chunk_files
 from app.services.llm_service import LLMService
 from app.schemas.response import AnalyzeResponse
 
 logger = logging.getLogger(__name__)
+
+MANIFEST_NAMES = {"package.json", "pyproject.toml", "cargo.toml", "go.mod", "pom.xml"}
+README_NAMES = {"readme.md", "readme.rst", "readme.txt"}
 
 
 class AnalyzerService:
@@ -17,66 +19,66 @@ class AnalyzerService:
 
     async def analyze(self, repo_url: str, github_token: str, job_id: str) -> AnalyzeResponse:
         start_time = time.time()
-        logger.info(f"[{job_id}] Starting analysis for repository: {repo_url}")
+        logger.info(f"[{job_id}] Starting comprehensive architectural analysis for: {repo_url}")
 
-        # 1. Fetch files from GitHub
+        # 1. Fetch files from GitHub (lockfiles and build noise already excluded)
         files = fetch_repository_files(repo_url, github_token)
-        logger.info(f"[{job_id}] Fetched {len(files)} files")
+        logger.info(f"[{job_id}] Fetched {len(files)} relevant files")
 
         if not files:
-            raise ValueError(f"No valid text files found in {repo_url} or repository empty")
+            raise ValueError(f"No valid source files found in {repo_url} or repository empty")
 
-        # 2. Prioritize files
+        # 2. Prioritize files (source code first, configs last)
         ordered_files = prioritize_files(files)
 
-        # 3. Overview section
-        file_tree = "\n".join([f[0] for f in ordered_files])
-        readme_content = files.get("README.md", files.get("readme.md", ""))
-        overview = await self.llm.generate_overview(file_tree, readme_content)
+        # 3. Extract manifest and readme
+        manifest_content = ""
+        readme_content = ""
+        file_tree_lines = []
+        source_code_parts = []
 
-        # 4. Chunk files (top 40 prioritized files)
-        chunks = chunk_files(ordered_files[:40])
-        sections: List[str] = [overview]
-        section_names: List[str] = ["Overview"]
+        for filepath, content in ordered_files:
+            file_tree_lines.append(filepath)
+            name_lower = filepath.lower().split("/")[-1]
 
-        # Limit concurrency to 5 parallel calls to avoid rate limits
-        semaphore = asyncio.Semaphore(5)
-
-        async def process_chunk(chunk_data: dict):
-            async with semaphore:
-                return await self.llm.document_chunk(
-                    chunk_data["filepath"],
-                    chunk_data["chunk"],
-                    chunk_data["chunk_index"],
+            if name_lower in MANIFEST_NAMES and not manifest_content:
+                manifest_content = content
+            elif name_lower in README_NAMES and not readme_content:
+                readme_content = content
+            else:
+                # Include source code file in bundle (up to 6,000 chars per file)
+                ext = filepath.split(".")[-1]
+                source_code_parts.append(
+                    f"### Archivo: `{filepath}`\n```{ext}\n{content[:6000]}\n```"
                 )
 
-        tasks = [process_chunk(c) for c in chunks[:30]]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        file_tree = "\n".join(file_tree_lines)
+        source_code_bundle = "\n\n".join(source_code_parts[:20]) # Top 20 source files
 
-        for chunk_data, result in zip(chunks[:30], results):
-            if isinstance(result, Exception):
-                logger.warning(f"[{job_id}] Chunk failed: {result}")
-                continue
-            filepath = chunk_data["filepath"]
-            if filepath not in section_names:
-                section_names.append(filepath)
-            sections.append(f"## `{filepath}`\n\n{result}")
+        repo_name = repo_url.rstrip("/").split("/")[-1].replace(".git", "")
 
-        # 5. Assemble Markdown
-        repo_name = repo_url.rstrip("/").split("/")[-1]
-        header = (
-            f"# Documentación Técnica: {repo_name}\n\n"
-            f"> Generado automáticamente por **CodeScribe AI** · [Ver Repositorio]({repo_url})\n\n"
-            f"---\n\n"
+        # 4. Invoke Senior Architect prompt with Gemini 3.8 Flash
+        full_markdown = await self.llm.generate_full_architecture_docs(
+            repo_url=repo_url,
+            repo_name=repo_name,
+            file_tree=file_tree,
+            manifest_content=manifest_content,
+            readme_content=readme_content,
+            source_code_bundle=source_code_bundle,
         )
-        final_markdown = header + "\n\n---\n\n".join(sections)
-        duration_ms = int((time.time() - start_time) * 1000)
 
-        logger.info(f"[{job_id}] Analysis finished in {duration_ms}ms")
+        # 5. Extract section titles for table of contents
+        sections = []
+        for line in full_markdown.splitlines():
+            if line.startswith("## "):
+                sections.append(line.replace("## ", "").strip())
+
+        duration_ms = int((time.time() - start_time) * 1000)
+        logger.info(f"[{job_id}] Finished comprehensive analysis in {duration_ms}ms with {len(sections)} sections")
 
         return AnalyzeResponse(
-            markdown=final_markdown,
+            markdown=full_markdown,
             tokensUsed=0,
             durationMs=duration_ms,
-            sections=section_names,
+            sections=sections if sections else ["Documentación General"],
         )

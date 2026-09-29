@@ -9,13 +9,20 @@ logger = logging.getLogger(__name__)
 SKIP_EXTENSIONS = {
     ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".webp",
     ".pdf", ".zip", ".tar", ".gz", ".lock", ".map", ".woff",
-    ".woff2", ".ttf", ".eot", ".mp4", ".mp3",
+    ".woff2", ".ttf", ".eot", ".mp4", ".mp3", ".tsbuildinfo",
+    ".min.js", ".min.css",
+}
+
+SKIP_FILENAMES = {
+    "pnpm-lock.yaml", "package-lock.json", "yarn.lock", "bun.lockb",
+    "cargo.lock", "poetry.lock", "composer.lock", "gemfile.lock",
+    "license", "license.md", "license.txt", ".ds_store",
 }
 
 SKIP_DIRS = {
     "node_modules", ".git", "dist", "build", ".next", ".nuxt",
     "__pycache__", ".venv", "venv", ".idea", ".vscode",
-    "coverage", ".nyc_output", ".cache",
+    "coverage", ".nyc_output", ".cache", "public",
 }
 
 
@@ -34,7 +41,6 @@ def fetch_repository_files(repo_url: str, github_token: str) -> Dict[str, str]:
     Supports authenticated and anonymous access for public repositories.
     """
     settings = get_settings()
-    # If the token is empty or a mock token, connect anonymously for public repos
     token = github_token if github_token and not github_token.startswith("ghp_demo") else None
     g = Github(token)
     owner, repo_name = parse_github_url(repo_url)
@@ -74,8 +80,11 @@ def _traverse(
             if dirname not in SKIP_DIRS:
                 _traverse(repo, item.path, files, max_files, max_kb)
         elif item.type == "file":
-            ext = "." + item.name.rsplit(".", 1)[-1].lower() if "." in item.name else ""
-            if ext in SKIP_EXTENSIONS:
+            filename = item.name.lower()
+            if filename in SKIP_FILENAMES:
+                continue
+            ext = "." + filename.rsplit(".", 1)[-1] if "." in filename else ""
+            if ext in SKIP_EXTENSIONS or filename.endswith(".min.js") or filename.endswith(".min.css"):
                 continue
             if item.size > max_kb * 1024:
                 continue

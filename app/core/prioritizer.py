@@ -1,30 +1,41 @@
 from typing import Dict, List, Tuple
 
-PRIORITY_FILES = {
-    "readme.md", "readme.rst", "readme.txt",
-    "package.json", "pyproject.toml", "cargo.toml",
-    "go.mod", "pom.xml", "build.gradle", "dockerfile",
-    "docker-compose.yml", "makefile",
+MANIFEST_FILES = {
+    "readme.md", "readme.rst", "package.json", "pyproject.toml",
+    "cargo.toml", "go.mod", "pom.xml", "dockerfile", "docker-compose.yml"
 }
 
-CONFIG_KEYWORDS = {".config.", "settings.", "config.", ".env.example"}
-TEST_KEYWORDS = {"test", "spec", "__tests__", "fixture", "mock", "seed"}
+CONFIG_KEYWORDS = {"config", "settings", "tsconfig", "eslint", "postcss", ".env.example"}
+SOURCE_DIRS = {"src/", "app/", "lib/", "components/", "pages/", "features/", "services/", "modules/"}
 
 
 def _score(filepath: str) -> int:
-    name = filepath.lower().split("/")[-1]
-    if name in PRIORITY_FILES:
+    path_lower = filepath.lower()
+    name = path_lower.split("/")[-1]
+
+    # 1. README and primary manifest first
+    if name in MANIFEST_FILES:
         return 0
-    if any(k in name for k in CONFIG_KEYWORDS):
+
+    # 2. Real application source code gets highest priority
+    if any(sd in path_lower for sd in SOURCE_DIRS) and not any(k in name for k in CONFIG_KEYWORDS):
         return 1
-    if any(k in filepath.lower() for k in TEST_KEYWORDS):
+
+    # 3. Main root entry points
+    if name in {"index.html", "main.ts", "index.ts", "main.py", "app.py"}:
+        return 2
+
+    # 4. Config files
+    if any(k in name for k in CONFIG_KEYWORDS):
         return 3
-    return 2
+
+    # 5. Other files
+    return 4
 
 
 def prioritize_files(files: Dict[str, str]) -> List[Tuple[str, str]]:
     """
-    Returns files sorted by relevance:
-    0 = README / manifest  →  1 = config  →  2 = source  →  3 = tests
+    Sorts files so manifests and core application source code are analyzed first,
+    leaving configuration boilerplate at the end.
     """
-    return sorted(files.items(), key=lambda x: _score(x[0]))
+    return sorted(files.items(), key=lambda x: (_score(x[0]), len(x[0])))
