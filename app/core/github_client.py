@@ -1,7 +1,10 @@
+import logging
 import re
 from typing import Dict
 from github import Github, GithubException
 from app.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 SKIP_EXTENSIONS = {
     ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".webp",
@@ -28,16 +31,22 @@ def parse_github_url(url: str) -> tuple[str, str]:
 def fetch_repository_files(repo_url: str, github_token: str) -> Dict[str, str]:
     """
     Fetches file contents from a GitHub repository via the REST API.
-    Returns {filepath: content} for all text files under the limits.
+    Supports authenticated and anonymous access for public repositories.
     """
     settings = get_settings()
-    g = Github(github_token)
+    # If the token is empty or a mock token, connect anonymously for public repos
+    token = github_token if github_token and not github_token.startswith("ghp_demo") else None
+    g = Github(token)
     owner, repo_name = parse_github_url(repo_url)
 
     try:
         repo = g.get_repo(f"{owner}/{repo_name}")
     except GithubException as e:
-        raise ValueError(f"Cannot access {owner}/{repo_name}: {e.data}")
+        logger.warning(f"Could not connect via token, trying anonymous: {e}")
+        try:
+            repo = Github().get_repo(f"{owner}/{repo_name}")
+        except GithubException as exc:
+            raise ValueError(f"Cannot access repository {owner}/{repo_name}: {exc.data.get('message', str(exc))}")
 
     files: Dict[str, str] = {}
     _traverse(repo, "", files, settings.max_files_per_repo, settings.max_file_size_kb)
