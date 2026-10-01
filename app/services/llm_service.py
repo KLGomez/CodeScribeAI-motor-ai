@@ -5,74 +5,84 @@ from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """Eres un Senior Software Architect y Tech Lead de clase mundial.
-Tu misión es generar Documentación Técnica de Software de nivel profesional, exhaustiva y estructurada para desarrolladores y líderes técnicos.
+SYSTEM_PROMPT = """Rol: Eres un Arquitecto de Software y Technical Writer Senior. Tu objetivo es analizar código fuente y redactar documentación técnica de alto nivel orientada al comportamiento, no a la sintaxis.
 
-Reglas Obligatorias:
-1. IDIOMA: Todo el documento debe estar redactado en ESPAÑOL técnico impecable.
-2. ENFOQUE: No te limites a enumerar archivos. Explica la lógica de negocio, arquitectura, flujo de datos, estado y diseño.
-3. DIAGRAMAS: Incluye al menos un diagrama conceptual de arquitectura o flujo de componentes en sintaxis Mermaid (fenced code block ```mermaid ... ```).
-4. CÓDIGO: Cuando expliques componentes o funciones clave, muestra fragmentos reales relevantes con sintaxis resaltada (ej: ```tsx, ```python, etc.).
-5. FORMATO: Usa Markdown profesional con encabezados estructurados (##, ###), tablas de dependencias y bloques legibles.
+REGLAS ESTRICTAS DE RESPUESTA:
+
+1. Cero Transcripción de Código: Tienes estrictamente prohibido devolver el código fuente original. Tu trabajo es explicar la lógica, no repetirla. No incluyas bloques de código a menos que sea un ejemplo de uso muy breve e indispensable.
+
+2. Estructura Obligatoria: Para cada módulo, componente o función principal, debes documentar:
+   - **Propósito:** ¿Qué hace este módulo y qué responsabilidad tiene en el sistema?
+   - **Entradas y Salidas:** Props (si es frontend), parámetros, argumentos y tipos de retorno.
+   - **Gestión de Estado y Lógica:** Cómo manipula los datos o el estado interno.
+   - **Dependencias y Efectos:** Con qué otros servicios, hooks, o componentes interactúa.
+
+3. Filtro Anti-Ruido: Si el archivo o bloque corresponde a un archivo de configuración, listado de dependencias (lockfiles), variables de entorno o manifiestos que no contienen lógica de negocio, responde única y exactamente con la cadena: [OMITIR_DOCUMENTACION].
+
+4. Diagramas de Comportamiento: Genera diagramas de flujo de datos y arquitectura en sintaxis Mermaid (```mermaid ... ```).
+
+5. Tono y Formato: Usa Markdown limpio, con listas estructuradas y lenguaje técnico preciso. Omite saludos, introducciones o conclusiones genéricas.
 """
 
-DOCUMENTATION_PROMPT = """Analiza a fondo el siguiente repositorio de código y genera una Documentación Técnica Completa de Arquitectura.
+DOCUMENTATION_PROMPT = """Analiza el siguiente repositorio de software y redacta una Documentación Técnica de Alto Nivel orientada al comportamiento:
 
-INFORMACIÓN DEL REPOSITORIO:
+REPOSITORIO:
 - URL: {repo_url}
 - Nombre: {repo_name}
 
-ÁRBOL DE DIRECTORIOS RELEVANTE:
+ESTRUCTURA DEL PROYECTO:
 ```
 {file_tree}
 ```
 
-MANIFEST / DEPENDENCIAS (package.json / pyproject.toml):
+MANIFIESTO / DEPENDENCIAS (package.json / pyproject.toml):
 ```
 {manifest_content}
 ```
 
-README PRINCIPAL:
+README ORIGINAL:
 ```
 {readme_content}
 ```
 
-CÓDIGO FUENTE REAL DEL PROYECTO:
+CÓDIGO FUENTE REAL:
 {source_code_bundle}
 
-Genera la documentación técnica completa siguiendo esta estructura:
-# 📘 Documentación Técnica: {repo_name}
+INSTRUCCIONES DE REDACCIÓN:
+Genera la documentación siguiendo estrictamente este formato:
 
-> Documentación de arquitectura generada automáticamente por **CodeScribe AI** · [Ver Repositorio Original]({repo_url})
+# Documentación Técnica: {repo_name}
+
+> Documentación de arquitectura orientada al comportamiento · [Repositorio GitHub]({repo_url})
 
 ---
 
-## 1. 🎯 Resumen Ejecutivo y Propósito del Software
-- ¿Qué problema resuelve este proyecto y qué valor entrega?
-- Funcionalidades principales detectadas en el código.
+## 1. Propósito General del Sistema
+- Descripción clara del problema que resuelve y funcionalidad central.
+- Flujo principal de usuario/negocio.
 
-## 2. 🏛️ Arquitectura del Sistema y Diagrama
-- Patrón de arquitectura identificado (ej: SPA en React con Vite, arquitectura por capas, etc.).
-- Diagrama de arquitectura o flujo de componentes en bloque Mermaid (usa ```mermaid graph TD o sequenceDiagram).
-- Flujo de datos y ciclo de vida de la aplicación.
+## 2. Arquitectura y Flujo de Datos
+- Patrón de diseño identificado.
+- Diagrama conceptual en Mermaid (```mermaid graph TD o sequenceDiagram).
+- Ciclo de vida y comunicación entre capas.
 
-## 3. 🛠️ Stack Tecnológico y Dependencias
-- Tabla detallada de tecnologías y bibliotecas clave (Nombre | Versión | Rol en el sistema).
+## 3. Stack Tecnológico y Dependencias
+- Tabla técnica de tecnologías y bibliotecas clave (Tecnología | Versión | Rol en el sistema).
 
-## 4. 📂 Mapa de Estructura del Proyecto
-- Detalle de los directorios clave y la responsabilidad técnica de cada uno.
+## 4. Mapa de Responsabilidades por Directorio
+- Responsabilidad arquitectónica de cada carpeta principal del proyecto.
 
-## 5. 🧩 Análisis Detallado de Componentes y Lógica de Negocio
-- Análisis profundo de los archivos reales del código fuente (en `src/` u otros directorios de negocio).
-- Explicación de componentes, hooks, estado, interfaces y funciones críticas.
-- Incluye snippets de código ilustrativos.
+## 5. Análisis de Módulos y Componentes de Negocio
+Para cada componente, hook, servicio o módulo de código fuente analizado (excluyendo configuración):
+### `[Nombre del Módulo o Componente]`
+- **Propósito:** Responsabilidad específica dentro de la aplicación.
+- **Entradas y Salidas:** Props, parámetros recibidos, tipos y valores de retorno.
+- **Gestión de Estado y Lógica:** Variables de estado manejadas, mutaciones, transformaciones de datos o cálculos.
+- **Dependencias y Efectos:** Hooks invocados, servicios consumidos, eventos disparados y efectos secundarios.
 
-## 6. ⚙️ Configuración y Estilos
-- Explicación de la configuración de compilación, estilos (Tailwind, CSS) y herramientas de calidad de código.
-
-## 7. 🚀 Guía de Instalación y Puesta en Marcha
-- Prerrequisitos de entorno.
-- Comandos paso a paso para instalación, modo desarrollo y compilación para producción.
+## 6. Guía de Puesta en Marcha y Entorno
+- Requisitos mínimos de entorno.
+- Comandos para instalación de dependencias, modo desarrollo y compilación de producción.
 """
 
 
@@ -103,7 +113,7 @@ class LLMService:
                 self.llm = ChatGoogleGenerativeAI(
                     model=self.model_name,
                     google_api_key=api_key,
-                    temperature=0.2,
+                    temperature=0.1,
                 )
                 logger.info(f"Initialized Gemini model: {self.model_name}")
             except Exception as e:
@@ -127,25 +137,27 @@ class LLMService:
                     file_tree=file_tree,
                     manifest_content=manifest_content[:4000],
                     readme_content=readme_content[:4000] if readme_content else "Sin README provisto.",
-                    source_code_bundle=source_code_bundle[:80000], # Up to ~80k chars of clean source code
+                    source_code_bundle=source_code_bundle[:80000],
                 )
                 response = await self.llm.ainvoke([
                     SystemMessage(content=SYSTEM_PROMPT),
                     HumanMessage(content=prompt),
                 ])
-                return _extract_text(response.content)
+                result_text = _extract_text(response.content)
+                if result_text.strip() == "[OMITIR_DOCUMENTACION]":
+                    return f"# Documentación: {repo_name}\n\n*El repositorio contiene únicamente archivos de configuración o manifiestos sin lógica de negocio documentable.*"
+                return result_text
             except Exception as exc:
-                logger.error(f"Error calling Gemini for full docs: {exc}", exc_info=True)
+                logger.error(f"Error calling Gemini for behavior-oriented docs: {exc}", exc_info=True)
 
-        # Fallback local in case LLM is completely unreachable
-        return f"""# 📘 Documentación Técnica: {repo_name}
+        return f"""# Documentación Técnica: {repo_name}
 
 > Documentación básica generada por CodeScribe AI · [Repositorio]({repo_url})
 
-## 🎯 Resumen del Proyecto
+## Propósito General
 Repositorio analizado: `{repo_name}`.
 
-## 📂 Archivos Detectados
+## Archivos Detectados
 ```
 {file_tree}
 ```
