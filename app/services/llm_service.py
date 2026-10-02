@@ -112,7 +112,9 @@ class LLMService:
         manifest_content: str,
         readme_content: str,
         source_code_bundle: str,
-    ) -> str:
+    ) -> tuple[str, int]:
+        import asyncio
+
         prompt = DOCUMENTATION_PROMPT.format(
             repo_url=repo_url,
             repo_name=repo_name,
@@ -122,36 +124,41 @@ class LLMService:
             source_code_bundle=source_code_bundle[:80000],
         )
 
-        if self.client:
-            for model_name in self.models_to_try:
-                try:
-                    logger.info(f"Generating architecture documentation using model {model_name}...")
-                    response = self.client.models.generate_content(
-                        model=model_name,
-                        contents=prompt,
-                        config=types.GenerateContentConfig(
-                            system_instruction=SYSTEM_PROMPT,
-                            temperature=0.1,
-                        ),
+        if not self.client:
+            raise RuntimeError(
+                "El cliente de Google Gemini no está inicializado. Verifica GEMINI_API_KEY o GOOGLE_API_KEY."
+            )
+
+        last_error = None
+        for model_name in self.models_to_try:
+            try:
+                logger.info(f"Generating architecture documentation using model {model_name}...")
+                response = await asyncio.to_thread(
+                    self.client.models.generate_content,
+                    model=model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction=SYSTEM_PROMPT,
+                        temperature=0.1,
+                    ),
+                )
+                text = response.text or ""
+                tokens_used = (
+                    getattr(response.usage_metadata, "total_token_count", 0)
+                    if hasattr(response, "usage_metadata")
+                    else 0
+                )
+                if text.strip() == "[OMITIR_DOCUMENTACION]":
+                    return (
+                        f"# Documentación: {repo_name}\n\n*El repositorio contiene únicamente archivos de configuración o manifiestos sin lógica de negocio documentable.*",
+                        tokens_used,
                     )
-                    text = response.text or ""
-                    if text.strip() == "[OMITIR_DOCUMENTACION]":
-                        return f"# Documentación: {repo_name}\n\n*El repositorio contiene únicamente archivos de configuración o manifiestos sin lógica de negocio documentable.*"
-                    if text.strip():
-                        return text
-                except Exception as exc:
-                    logger.warning(f"Model {model_name} call failed: {exc}. Trying next model...")
+                if text.strip():
+                    return text, tokens_used
+            except Exception as exc:
+                last_error = exc
+                logger.warning(f"Model {model_name} call failed: {exc}. Trying next model...")
 
-        # Fallback local
-        return f"""# Documentación Técnica: {repo_name}
-
-> Documentación básica generada por CodeScribe AI · [Repositorio]({repo_url})
-
-## Propósito General
-Repositorio analizado: `{repo_name}`.
-
-## Archivos Detectados
-```
-{file_tree}
-```
-"""
+        raise RuntimeError(
+            f"Fallo en la generación de documentación con Gemini ({last_error}). Se intentó con: {self.models_to_try}"
+        )

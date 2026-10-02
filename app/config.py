@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     max_files_per_repo: int = 200
 
     port: int = 8000
+    github_fallback_token: str = ""
     environment: str = "development"
 
     @model_validator(mode="after")

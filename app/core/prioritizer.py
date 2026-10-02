@@ -33,6 +33,10 @@ def _score(filepath: str) -> int:
     return 4
 
 
+def score_filepath(filepath: str) -> int:
+    return _score(filepath)
+
+
 def prioritize_files(files: Dict[str, str]) -> List[Tuple[str, str]]:
     """
     Sorts files so manifests and core application source code are analyzed first,

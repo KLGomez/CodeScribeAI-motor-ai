@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 import time
@@ -21,8 +22,8 @@ class AnalyzerService:
         start_time = time.time()
         logger.info(f"[{job_id}] Starting comprehensive architectural analysis for: {repo_url}")
 
-        # 1. Fetch files from GitHub (lockfiles and build noise already excluded)
-        files = fetch_repository_files(repo_url, github_token)
+        # 1. Fetch files from GitHub asynchronously to keep event loop free
+        files = await asyncio.to_thread(fetch_repository_files, repo_url, github_token)
         logger.info(f"[{job_id}] Fetched {len(files)} relevant files")
 
         if not files:
@@ -57,8 +58,8 @@ class AnalyzerService:
 
         repo_name = repo_url.rstrip("/").split("/")[-1].replace(".git", "")
 
-        # 4. Invoke Senior Architect prompt with Gemini 3.8 Flash
-        full_markdown = await self.llm.generate_full_architecture_docs(
+        # 4. Invoke Senior Architect prompt with Gemini
+        full_markdown, tokens_used = await self.llm.generate_full_architecture_docs(
             repo_url=repo_url,
             repo_name=repo_name,
             file_tree=file_tree,
@@ -74,11 +75,11 @@ class AnalyzerService:
                 sections.append(line.replace("## ", "").strip())
 
         duration_ms = int((time.time() - start_time) * 1000)
-        logger.info(f"[{job_id}] Finished comprehensive analysis in {duration_ms}ms with {len(sections)} sections")
+        logger.info(f"[{job_id}] Finished comprehensive analysis in {duration_ms}ms with {len(sections)} sections and {tokens_used} tokens")
 
         return AnalyzeResponse(
             markdown=full_markdown,
-            tokensUsed=0,
+            tokensUsed=tokens_used,
             durationMs=duration_ms,
             sections=sections if sections else ["Documentación General"],
         )
