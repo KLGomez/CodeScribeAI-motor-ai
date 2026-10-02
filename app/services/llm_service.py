@@ -2,7 +2,10 @@ import logging
 import os
 from google import genai
 from google.genai import types
-from langchain.prompts import PromptTemplate
+try:
+    from langchain_core.prompts import PromptTemplate
+except ImportError:
+    from langchain.prompts import PromptTemplate
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
