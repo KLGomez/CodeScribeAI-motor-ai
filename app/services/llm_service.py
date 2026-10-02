@@ -1,9 +1,63 @@
 import logging
 import os
-from typing import Dict, List
+from google import genai
+from google.genai import types
+from langchain.prompts import PromptTemplate
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+# ==============================================================================
+# PROMPTS LANGCHAIN: MAP-REDUCE PIPELINE (ANÁLISIS ARQUITECTÓNICO Y DE NEGOCIO)
+# ==============================================================================
+
+map_template = """Actúa como un Tech Lead Senior y Arquitecto de Software. Tu tarea es analizar en profundidad el siguiente fragmento o módulo de código fuente y documentar su comportamiento técnico, flujo de datos y lógica de dominio.
+
+CÓDIGO FUENTE DEL MÓDULO:
+{text}
+
+REGLAS ESTRICTAS DE ANÁLISIS:
+1. Propósito del Módulo: Documenta con precisión cuál es la responsabilidad única del módulo y qué rol desempeña en el sistema.
+2. Gestión de Estado: Explica detalladamente cómo maneja el estado interno, reactivo o global (ej. mutaciones, stores, ciclo de vida de los datos, persistencia o caché).
+3. Dependencias Críticas: Identifica las dependencias arquitectónicas e integraciones clave (servicios internos, endpoints de backend, contratos de datos u otros módulos del dominio).
+4. Regla de Negocio Resuelta: Describe de manera explícita qué regla, validación, cálculo o flujo de negocio implementa o resuelve este módulo.
+
+PROHIBICIONES ESTRICTAS Y FILTRO ANTI-RUIDO:
+- Está PROHIBIDO listar imports de React o librerías estándar (ej. React, useState, useEffect, lodash, utilidades genéricas). No enumeres dependencias obvias ni transcribas sintaxis básica.
+- Si el archivo analizado es solo de configuración básica (ej. tsconfig, eslint, bundlers), estilos vacíos o puramente decorativos sin lógica de negocio, responde ÚNICA Y EXACTAMENTE con el siguiente token:
+[OMITIR_DOCUMENTACION]
+- Cero transcripción de código: no copies bloques de código fuente; tu tarea es explicar el diseño y comportamiento.
+
+FORMATO DE SALIDA:
+Genera un análisis técnico en Markdown estructurado, directo y profesional, sin preámbulos ni despedidas."""
+
+map_prompt = PromptTemplate(
+    template=map_template,
+    input_variables=["text"],
+)
+
+reduce_template = """Actúa como el Chief Technology Officer (CTO) de una compañía de software de alto impacto. Tu misión es sintetizar los análisis técnicos modulares que se presentan a continuación para generar un Resumen Ejecutivo y Arquitectónico integral del producto.
+
+ANÁLISIS MODULARES PREVIOS:
+{text}
+
+REGLAS ESTRICTAS DE SÍNTESIS:
+1. Propósito General del Producto: Deduce y define con visión de negocio y producto la naturaleza de la solución (ej. SaaS de finanzas gamificado, plataforma e-commerce B2B, gestor colaborativo en tiempo real), explicando qué necesidad de mercado resuelve y su propuesta de valor.
+2. Arquitectura de Alto Nivel: Describe la arquitectura global del sistema, los patrones de diseño predominantes (ej. Arquitectura Limpia, Modular, Event-Driven, Microfrontends), la separación entre capas y la interacción entre subsistemas.
+3. Flujos Principales del Sistema: Explica en detalle los flujos troncales del negocio y de datos (ej. Autenticación y Autorización, Gestión de Estado Global, Ciclo de Ingesta y Sincronización de Datos, etc.).
+
+PROHIBICIÓN ABSOLUTA:
+ESTÁ ESTRICTAMENTE PROHIBIDO generar listas crudas de archivos o rutas (como .tsx, .ts, .md). Tu tarea es abstraer y explicar, no listar.
+
+FORMATO Y ESTILO:
+- Utiliza Markdown estructurado y jerárquico, priorizando claridad técnica, visión estratégica y síntesis de alto valor.
+- Evita introducciones robóticas como "Aquí tienes el resumen", "A continuación presento...", saludos o despedidas. Comienza directamente con el encabezado ejecutivo y el análisis técnico."""
+
+reduce_prompt = PromptTemplate(
+    template=reduce_template,
+    input_variables=["text"],
+)
+
 
 SYSTEM_PROMPT = """Rol: Eres un Arquitecto de Software y Technical Writer Senior. Tu objetivo es analizar código fuente y redactar documentación técnica de alto nivel orientada al comportamiento, no a la sintaxis.
 
@@ -86,38 +140,21 @@ Para cada componente, hook, servicio o módulo de código fuente analizado (excl
 """
 
 
-def _extract_text(content) -> str:
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts = []
-        for p in content:
-            if isinstance(p, dict):
-                parts.append(p.get("text", ""))
-            else:
-                parts.append(str(p))
-        return "".join(parts)
-    return str(content)
-
-
 class LLMService:
     def __init__(self):
         settings = get_settings()
         api_key = settings.gemini_api_key or os.getenv("GOOGLE_API_KEY", "")
-        self.model_name = settings.gemini_model or "gemini-3.8-flash"
-        self.llm = None
+        self.models_to_try = [settings.gemini_model, "gemini-3.5-flash-lite", "gemini-3.8-flash"]
+        # Deduplicate
+        self.models_to_try = list(dict.fromkeys([m for m in self.models_to_try if m]))
+        self.client = None
 
         if api_key:
             try:
-                from langchain_google_genai import ChatGoogleGenerativeAI
-                self.llm = ChatGoogleGenerativeAI(
-                    model=self.model_name,
-                    google_api_key=api_key,
-                    temperature=0.1,
-                )
-                logger.info(f"Initialized Gemini model: {self.model_name}")
+                self.client = genai.Client(api_key=api_key)
+                logger.info(f"Initialized google.genai Client with models: {self.models_to_try}")
             except Exception as e:
-                logger.warning(f"Could not initialize Gemini LLM: {e}")
+                logger.warning(f"Could not initialize google.genai Client: {e}")
 
     async def generate_full_architecture_docs(
         self,
@@ -128,28 +165,36 @@ class LLMService:
         readme_content: str,
         source_code_bundle: str,
     ) -> str:
-        if self.llm:
-            try:
-                from langchain_core.messages import SystemMessage, HumanMessage
-                prompt = DOCUMENTATION_PROMPT.format(
-                    repo_url=repo_url,
-                    repo_name=repo_name,
-                    file_tree=file_tree,
-                    manifest_content=manifest_content[:4000],
-                    readme_content=readme_content[:4000] if readme_content else "Sin README provisto.",
-                    source_code_bundle=source_code_bundle[:80000],
-                )
-                response = await self.llm.ainvoke([
-                    SystemMessage(content=SYSTEM_PROMPT),
-                    HumanMessage(content=prompt),
-                ])
-                result_text = _extract_text(response.content)
-                if result_text.strip() == "[OMITIR_DOCUMENTACION]":
-                    return f"# Documentación: {repo_name}\n\n*El repositorio contiene únicamente archivos de configuración o manifiestos sin lógica de negocio documentable.*"
-                return result_text
-            except Exception as exc:
-                logger.error(f"Error calling Gemini for behavior-oriented docs: {exc}", exc_info=True)
+        prompt = DOCUMENTATION_PROMPT.format(
+            repo_url=repo_url,
+            repo_name=repo_name,
+            file_tree=file_tree,
+            manifest_content=manifest_content[:4000],
+            readme_content=readme_content[:4000] if readme_content else "Sin README provisto.",
+            source_code_bundle=source_code_bundle[:80000],
+        )
 
+        if self.client:
+            for model_name in self.models_to_try:
+                try:
+                    logger.info(f"Generating architecture documentation using model {model_name}...")
+                    response = self.client.models.generate_content(
+                        model=model_name,
+                        contents=prompt,
+                        config=types.GenerateContentConfig(
+                            system_instruction=SYSTEM_PROMPT,
+                            temperature=0.1,
+                        ),
+                    )
+                    text = response.text or ""
+                    if text.strip() == "[OMITIR_DOCUMENTACION]":
+                        return f"# Documentación: {repo_name}\n\n*El repositorio contiene únicamente archivos de configuración o manifiestos sin lógica de negocio documentable.*"
+                    if text.strip():
+                        return text
+                except Exception as exc:
+                    logger.warning(f"Model {model_name} call failed: {exc}. Trying next model...")
+
+        # Fallback local
         return f"""# Documentación Técnica: {repo_name}
 
 > Documentación básica generada por CodeScribe AI · [Repositorio]({repo_url})
