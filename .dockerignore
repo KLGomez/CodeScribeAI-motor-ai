@@ -7,6 +7,10 @@ __pycache__
 .git
 .gitignore
 .pytest_cache
+.ruff_cache
 tests/
 venv/
 .venv/
+README.md
+requirements-dev.txt
+requirements.in

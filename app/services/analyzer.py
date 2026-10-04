@@ -1,12 +1,13 @@
 import asyncio
 import logging
-import re
 import time
-from typing import List
+
+from app.config import get_settings
+from app.core.exceptions import RepoEmptyException
 from app.core.github_client import fetch_repository_files
 from app.core.prioritizer import prioritize_files
-from app.services.llm_service import LLMService
 from app.schemas.response import AnalyzeResponse
+from app.services.llm_service import LLMService
 
 logger = logging.getLogger(__name__)
 
@@ -19,15 +20,19 @@ class AnalyzerService:
         self.llm = LLMService()
 
     async def analyze(self, repo_url: str, github_token: str, job_id: str) -> AnalyzeResponse:
+        settings = get_settings()
         start_time = time.time()
         logger.info(f"[{job_id}] Starting comprehensive architectural analysis for: {repo_url}")
 
         # 1. Fetch files from GitHub asynchronously to keep event loop free
-        files = await asyncio.to_thread(fetch_repository_files, repo_url, github_token)
-        logger.info(f"[{job_id}] Fetched {len(files)} relevant files")
+        repo_result = await asyncio.to_thread(fetch_repository_files, repo_url, github_token)
+        files = repo_result.files
+        logger.info(
+            f"[{job_id}] Fetched {len(files)} files (total: {repo_result.files_total}, truncated: {repo_result.truncated})"
+        )
 
         if not files:
-            raise ValueError(f"No valid source files found in {repo_url} or repository empty")
+            raise RepoEmptyException("El repositorio no contiene archivos de código analizables")
 
         # 2. Prioritize files (source code first, configs last)
         ordered_files = prioritize_files(files)
@@ -37,6 +42,7 @@ class AnalyzerService:
         readme_content = ""
         file_tree_lines = []
         source_code_parts = []
+        total_bundle_chars = 0
 
         for filepath, content in ordered_files:
             file_tree_lines.append(filepath)
@@ -47,14 +53,16 @@ class AnalyzerService:
             elif name_lower in README_NAMES and not readme_content:
                 readme_content = content
             else:
-                # Include source code file in bundle (up to 6,000 chars per file)
-                ext = filepath.split(".")[-1]
-                source_code_parts.append(
-                    f"### Archivo: `{filepath}`\n```{ext}\n{content[:6000]}\n```"
-                )
+                # Limit source code bundle size according to config
+                if len(source_code_parts) < settings.max_source_files and total_bundle_chars < settings.max_bundle_chars:
+                    ext = filepath.split(".")[-1]
+                    file_slice = content[: settings.max_chars_per_file]
+                    part_str = f"### Archivo: `{filepath}`\n```{ext}\n{file_slice}\n```"
+                    source_code_parts.append(part_str)
+                    total_bundle_chars += len(part_str)
 
         file_tree = "\n".join(file_tree_lines)
-        source_code_bundle = "\n\n".join(source_code_parts[:20]) # Top 20 source files
+        source_code_bundle = "\n\n".join(source_code_parts)
 
         repo_name = repo_url.rstrip("/").split("/")[-1].replace(".git", "")
 
@@ -75,11 +83,16 @@ class AnalyzerService:
                 sections.append(line.replace("## ", "").strip())
 
         duration_ms = int((time.time() - start_time) * 1000)
-        logger.info(f"[{job_id}] Finished comprehensive analysis in {duration_ms}ms with {len(sections)} sections and {tokens_used} tokens")
+        logger.info(
+            f"[{job_id}] Finished comprehensive analysis in {duration_ms}ms with {len(sections)} sections and {tokens_used} tokens"
+        )
 
         return AnalyzeResponse(
             markdown=full_markdown,
             tokensUsed=tokens_used,
             durationMs=duration_ms,
             sections=sections if sections else ["Documentación General"],
+            filesAnalyzed=repo_result.files_analyzed,
+            filesTotal=repo_result.files_total,
+            truncated=repo_result.truncated,
         )
