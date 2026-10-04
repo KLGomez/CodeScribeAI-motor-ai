@@ -31,20 +31,20 @@ El **Servicio de IA de CodeScribe** es el motor cognitivo encargado de:
 app/
 ├── api/
 │   └── routes/
-│       ├── analyze.py      # Endpoints POST /analyze y DELETE /cleanup/{target_id}
-│       └── health.py       # Endpoint GET /health
+│       ├── analyze.py      # Endpoint POST /analyze
+│       └── health.py       # Endpoint GET /health (diagnóstico de Gemini y servicio)
 ├── core/
-│   ├── github_client.py    # Conexión a GitHub, traverser y filtros de exclusión
+│   ├── github_client.py    # Conexión Git Trees API (recursiva, 1 request) y filtros
 │   ├── prioritizer.py      # Ponderación semántica de importancia de archivos
 │   └── security.py         # Verificación de cabecera X-Internal-Secret
 ├── schemas/
 │   ├── request.py          # Modelo de entrada AnalyzeRequest
 │   └── response.py         # Modelo de salida AnalyzeResponse
 ├── services/
-│   ├── analyzer.py         # Orquestador del flujo de inspección y ensamblado
+│   ├── analyzer.py         # Orquestador del flujo con asyncio.to_thread
 │   └── llm_service.py      # Invocación de Google Gemini y fallback de modelos
 ├── config.py               # Variables de entorno gestionadas por BaseSettings
-└── main.py                 # Instancia de FastAPI, CORS y lifespan
+└── main.py                 # Instancia de FastAPI, CORS restrictivo y lifespan
 ```
 
 ---
@@ -56,14 +56,12 @@ Crea un archivo `.env` en la raíz de `documentador-ai-service`:
 ```env
 PORT=8000
 GEMINI_API_KEY=tu_clave_de_google_gemini
-GEMINI_MODEL=gemini-3.8-flash
+GEMINI_MODEL=gemini-2.5-flash
 AI_SERVICE_SECRET=shared_secret
 
-# Límites de análisis
+# Límites de análisis de repositorio
 MAX_FILE_SIZE_KB=100
 MAX_FILES_PER_REPO=200
-CHUNK_SIZE=2000
-CHUNK_OVERLAP=200
 ```
 
 ---
@@ -98,16 +96,33 @@ El servicio estará disponible en `http://localhost:8000`.
 
 | Verbo | Ruta | Cabecera | Descripción |
 |---|---|---|---|
-| `GET` | `/health` | Ninguna | Chequeo de estado y modelo de Gemini activo |
-| `POST` | `/analyze` | `X-Internal-Secret` | Analiza el repositorio de GitHub y retorna el Markdown |
-| `DELETE` | `/cleanup/{target_id}` | `X-Internal-Secret` | Limpia directorios temporales de caché |
+| `GET` | `/health` | Ninguna | Diagnóstico de salud, servicio y modelo de Gemini configurado |
+| `POST` | `/analyze` | `X-Internal-Secret` | Analiza el repositorio de GitHub y retorna la documentación técnica en Markdown |
+
+### Ejemplo de respuesta `/health`:
+```json
+{
+  "status": "ok",
+  "service": "ai-service",
+  "gemini_model": "gemini-2.5-flash",
+  "gemini_configured": true
+}
+```
+
+---
+
+## 🔍 Alcance y Límites del Análisis
+
+- **Rastreo Eficiente vía Git Trees API:** La indexación de directorios utiliza `get_git_tree(recursive=True)` de GitHub, reduciendo las llamadas de API a una sola petición para obtener la estructura completa del árbol y evitar el agotamiento de cuotas.
+- **Ventana de Contexto Focalizada:** Se seleccionan hasta **20 archivos prioritarios** (manifiestos de paquetes, puntos de entrada, controladores, servicios principales), con un tope de **6.000 caracteres por archivo**. Esto garantiza una alta densidad de información relevante para el modelo de lenguaje sin saturar la ventana de contexto ni transcribir código redundante.
+- **Asincronía Real:** Todas las llamadas síncronas de PyGithub y Google GenAI se ejecutan delegadas en hilos secundarios mediante `asyncio.to_thread`, manteniendo el event loop liberado para responder a health checks y peticiones concurrentes.
 
 ---
 
 ## 🐳 Despliegue con Docker
 
 ```bash
-# Construir la imagen
+# Construir la imagen optimizada (multi-stage con usuario sin privilegios)
 docker build -t codescribe-ai-service .
 
 # Ejecutar el contenedor

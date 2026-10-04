@@ -23,7 +23,7 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     app = FastAPI(
         title="CodeScribe AI Service",
-        description="Microservicio de análisis de código y generación de documentación con LangChain + Gemini",
+        description="Microservicio de análisis de código y generación de documentación con Gemini",
         version="1.0.0",
         lifespan=lifespan,
     )
@@ -31,8 +31,8 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "OPTIONS"],
         allow_headers=["*"],
     )
 
