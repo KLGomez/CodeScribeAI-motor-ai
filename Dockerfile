@@ -4,6 +4,7 @@ WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV ENVIRONMENT=production
 
 RUN addgroup --system --gid 10001 appgroup && adduser --system --uid 10001 --gid 10001 appuser
 

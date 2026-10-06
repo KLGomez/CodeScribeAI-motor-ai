@@ -1,0 +1,17 @@
+"""Prompts versionados para el motor de documentación técnica de CodeScribe AI."""
+
+from .architecture_prompts import (
+    CORRECTION_PROMPT_TEMPLATE,
+    DOCUMENTATION_PROMPT_TEMPLATE,
+    GROUP_SUMMARY_PROMPT_TEMPLATE,
+    MAP_REDUCE_COMPOSE_PROMPT_TEMPLATE,
+    SYSTEM_PROMPT,
+)
+
+__all__ = [
+    "SYSTEM_PROMPT",
+    "DOCUMENTATION_PROMPT_TEMPLATE",
+    "GROUP_SUMMARY_PROMPT_TEMPLATE",
+    "MAP_REDUCE_COMPOSE_PROMPT_TEMPLATE",
+    "CORRECTION_PROMPT_TEMPLATE",
+]
