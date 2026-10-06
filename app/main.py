@@ -18,6 +18,13 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     settings = get_settings()
     logger.info(f"🚀 CodeScribe AI Service starting on port {settings.port} (env: {settings.environment})")
+    from app.services.llm_service import VERIFIED_GEMINI_MODELS
+
+    if settings.gemini_model not in VERIFIED_GEMINI_MODELS:
+        logger.warning(
+            f"⚠️ El modelo configurado '{settings.gemini_model}' no figura en la lista de modelos verificados "
+            f"({VERIFIED_GEMINI_MODELS}). Se recomienda verificar disponibilidad en Gemini API."
+        )
     yield
     logger.info("🛑 CodeScribe AI Service stopping")
 

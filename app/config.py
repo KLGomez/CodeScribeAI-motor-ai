@@ -36,6 +36,12 @@ class Settings(BaseSettings):
 
     github_fallback_token: str = ""
 
+    # Graph & Observability (M-11, M-12)
+    use_graph: bool = True
+    debug_graph: bool = False
+    langsmith_tracing: bool = False
+    langsmith_api_key: str = ""
+
     # Scope and limit configuration
     max_source_files: int = 20
     max_chars_per_file: int = 6000
