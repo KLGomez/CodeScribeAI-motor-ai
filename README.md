@@ -1,4 +1,4 @@
-# CodeScribe AI — AI Service
+# CodeScribe AI — AI Service (`CodeScribeAI-motor-ai`)
 
 > **Microservicio de Inspección de Código Fuente y Generación de Documentación Técnica con FastAPI, Google GenAI SDK (Gemini) y PyGithub.**
 
@@ -7,66 +7,82 @@
 ## 🧠 Descripción del Servicio
 
 El **Servicio de IA de CodeScribe** es el motor cognitivo encargado de:
-- **Descarga y Rastreo de Repositorios:** Recorrido recursivo de repositorios mediante la API REST de GitHub (con soporte para acceso autenticado o anónimo).
-- **Filtrado Semántico Anti-Ruido:** Exclusión automática de binarios, mapas, lockfiles, código compilado y dependencias externas.
-- **Priorización Inteligente de Archivos:** Ordenamiento semántico que ubica manifiestos (`package.json`, `pyproject.toml`) y código fuente de negocio prioritario en las primeras posiciones.
-- **Generación de Documentación con Google Gemini:** Ejecución de prompts con rol de *Senior Software Architect*, exigiendo cero transcripción de código, diagramas Mermaid interactivos y detalle de entradas/salidas/efectos.
-- **Seguridad Interna:** Validación obligatoria de la cabecera `X-Internal-Secret` para autorizar las peticiones provenientes del backend.
+- **Rastreo Eficiente mediante Git Trees API:** Indexación recursiva de árboles de directorios con una sola petición HTTP (`recursive=True`), protegiendo las cuotas de peticiones a GitHub.
+- **Filtrado Semántico Anti-Ruido:** Exclusión automática de binarios, archivos de mapas, lockfiles, código compilado y dependencias externas.
+- **Priorización Inteligente de Archivos:** Ordenamiento heurístico que sitúa manifiestos (`package.json`, `pyproject.toml`, etc.), puntos de entrada y lógica de negocio en la ventana de contexto prioritario.
+- **Síntesis Arquitectónica con Google Gemini:** Modelos `gemini-2.5-flash` (principal) y `gemini-2.5-pro` (fallback) configurados con rol de *Senior Software Architect*, exigiendo cero transcripción de código, diagramas Mermaid interactivos y detalle de entradas/salidas/efectos.
+- **Concurrencia y Resiliencia:** Control de concurrencia mediante semáforo (`MAX_CONCURRENT_ANALYSES=3`), retroceso exponencial ante rate limits de Gemini y ejecución asíncrona no bloqueante con `asyncio.to_thread`.
+- **Seguridad en Red Privada:** Acceso protegido obligatoriamente por la cabecera `X-Internal-Secret`. El servicio no debe tener puertos expuestos a internet público; opera exclusivamente dentro de la red interna de contenedores.
 
 ---
 
 ## 🛠️ Stack Tecnológico
 
-- **Framework Web:** [FastAPI](https://fastapi.tiangolo.com/) (>= 0.115)
-- **Servidor ASGI:** [Uvicorn](https://www.uvicorn.org/) (>= 0.32)
-- **SDK de Inteligencia Artificial:** [google-genai](https://pypi.org/project/google-genai/) (Gemini 3.8 Flash / 3.5 Flash)
-- **Cliente de GitHub:** [PyGithub](https://pygithub.readthedocs.io/) (>= 2.5)
-- **Validación de Datos:** [Pydantic v2](https://docs.pydantic.dev/) + [Pydantic Settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/)
+- **Framework Web:** [FastAPI](https://fastapi.tiangolo.com/) (0.115+)
+- **Servidor ASGI:** [Uvicorn](https://www.uvicorn.org/) (0.34+)
+- **SDK de Inteligencia Artificial:** [google-genai](https://pypi.org/project/google-genai/) (Gemini 2.5 Flash / 2.5 Pro)
+- **Cliente de GitHub:** [PyGithub](https://pygithub.readthedocs.io/) (2.5+)
+- **Validación y Configuración:** [Pydantic v2](https://docs.pydantic.dev/) + [Pydantic Settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/)
+- **Linter y Pruebas:** Ruff, Pytest
 
 ---
 
-## 📁 Estructura del Código
+## ⚙️ Variables de Entorno
 
-```text
-app/
-├── api/
-│   └── routes/
-│       ├── analyze.py      # Endpoint POST /analyze
-│       └── health.py       # Endpoint GET /health (diagnóstico de Gemini y servicio)
-├── core/
-│   ├── github_client.py    # Conexión Git Trees API (recursiva, 1 request) y filtros
-│   ├── prioritizer.py      # Ponderación semántica de importancia de archivos
-│   └── security.py         # Verificación de cabecera X-Internal-Secret
-├── schemas/
-│   ├── request.py          # Modelo de entrada AnalyzeRequest
-│   └── response.py         # Modelo de salida AnalyzeResponse
-├── services/
-│   ├── analyzer.py         # Orquestador del flujo con asyncio.to_thread
-│   └── llm_service.py      # Invocación de Google Gemini y fallback de modelos
-├── config.py               # Variables de entorno gestionadas por BaseSettings
-└── main.py                 # Instancia de FastAPI, CORS restrictivo y lifespan
+| Variable | Tipo / Valor | Obligatoria en Prod | Descripción |
+|---|---|:---:|---|
+| `PORT` | `8000` | No | Puerto interno ASGI en el que escucha Uvicorn (default: `8000`). |
+| `ENVIRONMENT` | `production` / `development` | **Sí** | Entorno de ejecución (habilita validaciones estrictas al iniciar). |
+| `GEMINI_API_KEY` | String secreto | **Sí** | Clave de API oficial de Google AI Studio / Gemini API. |
+| `GEMINI_MODEL` | `gemini-2.5-flash` | No | Modelo de lenguaje primario para generación (default: `gemini-2.5-flash`). |
+| `GEMINI_FALLBACK_MODEL` | `gemini-2.5-pro` | No | Modelo de respaldo si el principal se agota (default: `gemini-2.5-pro`). |
+| `AI_SERVICE_SECRET` | String (>= 16 chars) | **Sí** | Secreto requerido en la cabecera HTTP `X-Internal-Secret`. |
+| `GITHUB_FALLBACK_TOKEN` | Token GitHub | No | Token de lectura para repositorios analizados sin token de usuario. |
+| `ALLOWED_ORIGINS` | Lista separada por comas | **Sí** | Orígenes autorizados por CORS (en producción: URL del backend). |
+| `MAX_CONCURRENT_ANALYSES` | `3` | No | Límite de análisis simultáneos para proteger memoria y cuotas. |
+| `MAX_SOURCE_FILES` | `20` | No | Máximo de archivos fuente incluidos en el prompt de contexto. |
+| `MAX_CHARS_PER_FILE` | `6000` | No | Límite de caracteres capturados por archivo individual. |
+| `MAX_BUNDLE_CHARS` | `80000` | No | Tamaño máximo en caracteres del paquete total enviado al LLM. |
+
+---
+
+## 📡 Endpoints del Servicio
+
+| Verbo | Ruta | Cabecera Requerida | Descripción |
+|---|---|:---:|---|
+| `GET` | `/health` | Ninguna | Diagnóstico de salud, modelo de Gemini configurado y estado de la API. |
+| `POST` | `/analyze` | `X-Internal-Secret` | Analiza el repositorio de GitHub y genera la documentación técnica. |
+
+### Contrato de Respuesta `POST /analyze`:
+```json
+{
+  "documentation": "# Arquitectura del Sistema...",
+  "filesAnalyzed": 14,
+  "filesTotal": 42,
+  "truncated": false
+}
+```
+
+En caso de error, responde con formato tipificado:
+```json
+{
+  "detail": {
+    "code": "REPO_NOT_FOUND",
+    "message": "El repositorio solicitado no existe o es privado."
+  }
+}
 ```
 
 ---
 
-## ⚙️ Configuración del Entorno (`.env`)
+## 🔍 Alcance y Límites del Análisis
 
-Crea un archivo `.env` en la raíz de `documentador-ai-service`:
-
-```env
-PORT=8000
-GEMINI_API_KEY=tu_clave_de_google_gemini
-GEMINI_MODEL=gemini-2.5-flash
-AI_SERVICE_SECRET=shared_secret
-
-# Límites de análisis de repositorio
-MAX_FILE_SIZE_KB=100
-MAX_FILES_PER_REPO=200
-```
+- **Capacidad de Contexto:** El servicio procesa hasta un máximo de **20 archivos prioritarios** con un tope de **6.000 caracteres por archivo** y un límite acumulado de **80.000 caracteres**. Repositorios que superen estos límites serán documentados con base en los archivos más críticos de su arquitectura, marcando la propiedad `truncated: true`.
+- **Aislamiento de Red:** Este contenedor no expone puertos públicos. Se comunica exclusivamente a través de la red privada interna de Docker con el contenedor del Backend.
 
 ---
 
-## 🚀 Puesta en Marcha
+## 🚀 Puesta en Marcha Local
 
 ### 1. Crear y Activar Entorno Virtual
 ```bash
@@ -81,50 +97,25 @@ source .venv/bin/activate
 
 ### 2. Instalar Dependencias
 ```bash
-pip install -r requirements.txt
+pip install -r requirements.txt -r requirements-dev.txt
 ```
 
-### 3. Iniciar el Servidor de Desarrollo
+### 3. Iniciar Servidor ASGI
 ```bash
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
-El servicio estará disponible en `http://localhost:8000`.
 
 ---
 
-## 📡 Endpoints Disponibles
-
-| Verbo | Ruta | Cabecera | Descripción |
-|---|---|---|---|
-| `GET` | `/health` | Ninguna | Diagnóstico de salud, servicio y modelo de Gemini configurado |
-| `POST` | `/analyze` | `X-Internal-Secret` | Analiza el repositorio de GitHub y retorna la documentación técnica en Markdown |
-
-### Ejemplo de respuesta `/health`:
-```json
-{
-  "status": "ok",
-  "service": "ai-service",
-  "gemini_model": "gemini-2.5-flash",
-  "gemini_configured": true
-}
-```
-
----
-
-## 🔍 Alcance y Límites del Análisis
-
-- **Rastreo Eficiente vía Git Trees API:** La indexación de directorios utiliza `get_git_tree(recursive=True)` de GitHub, reduciendo las llamadas de API a una sola petición para obtener la estructura completa del árbol y evitar el agotamiento de cuotas.
-- **Ventana de Contexto Focalizada:** Se seleccionan hasta **20 archivos prioritarios** (manifiestos de paquetes, puntos de entrada, controladores, servicios principales), con un tope de **6.000 caracteres por archivo**. Esto garantiza una alta densidad de información relevante para el modelo de lenguaje sin saturar la ventana de contexto ni transcribir código redundante.
-- **Asincronía Real:** Todas las llamadas síncronas de PyGithub y Google GenAI se ejecutan delegadas en hilos secundarios mediante `asyncio.to_thread`, manteniendo el event loop liberado para responder a health checks y peticiones concurrentes.
-
----
-
-## 🐳 Despliegue con Docker
+## 🧪 Pruebas y Calidad de Código
 
 ```bash
-# Construir la imagen optimizada (multi-stage con usuario sin privilegios)
-docker build -t codescribe-ai-service .
+# Ejecutar suite de pruebas con Pytest
+pytest -q
 
-# Ejecutar el contenedor
-docker run -d -p 8000:8000 --env-file .env --name codescribe-ai codescribe-ai-service
+# Validar estilo y sintaxis con Ruff
+ruff check .
+
+# Compilación y verificación de contenedor Docker (no-root)
+docker build -t codescribe-ai .
 ```
