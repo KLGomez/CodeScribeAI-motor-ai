@@ -24,6 +24,8 @@ from app.utils.sanitizer import sanitize_llm_markdown
 logger = logging.getLogger(__name__)
 
 VERIFIED_GEMINI_MODELS = [
+    "gemini-3.8-flash",
+    "gemini-3.5-flash",
     "gemini-2.5-flash",
     "gemini-2.5-pro",
     "gemini-2.0-flash",
@@ -80,8 +82,8 @@ class LLMService:
         if self.custom_llm is not None:
             return self.custom_llm
 
-        primary_model = self.settings.gemini_model or "gemini-2.5-flash"
-        fallback_models = ["gemini-2.0-flash"]
+        primary_model = self.settings.gemini_model or "gemini-3.8-flash"
+        fallback_models = ["gemini-3.5-flash", "gemini-2.5-pro"]
         if primary_model in fallback_models:
             fallback_models.remove(primary_model)
 

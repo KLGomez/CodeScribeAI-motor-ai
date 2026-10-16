@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     port: int = 8000
 
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-3.8-flash"
     gemini_timeout_seconds: int = 60
 
     ai_service_secret: str = ""
