@@ -54,6 +54,19 @@ def sanitize_llm_markdown(content: str) -> str:
     if not content:
         return ""
 
+    # 0. Desenvolver representaciones textuales de lista python si vienen como string '[{\'type\': \'text\'...'
+    s = content.strip()
+    if (s.startswith("[{'type':") or s.startswith('[{"type":')) and ("'text':" in s or '"text":' in s):
+        try:
+            import ast
+            parsed = ast.literal_eval(s)
+            if isinstance(parsed, list):
+                parts = [p.get("text", "") for p in parsed if isinstance(p, dict) and "text" in p]
+                if parts:
+                    content = "".join(parts)
+        except Exception:
+            pass
+
     sanitized = content
 
     # 1. Remove dangerous paired tags (<script>...</script>, etc.)

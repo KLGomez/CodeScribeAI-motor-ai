@@ -140,6 +140,39 @@ async def test_lcel_structured_output_module_schema():
     assert "crypto.util" in schema.dependencies
 
 
+@pytest.mark.asyncio
+async def test_lcel_extracts_clean_text_from_list_content_with_signatures():
+    """Verifica que el contenido devuelto como lista con extras y firmas de Gemini se extraiga como texto plano limpio."""
+    list_content = [
+        {
+            "type": "text",
+            "text": "# Documentación Limpia\n\n## 1. Propósito General del Sistema\nDetalles del sistema.",
+            "extras": {"signature": "abc123xyz"},
+        }
+    ]
+    fake_msg = AIMessage(
+        content=list_content,
+        usage_metadata={"input_tokens": 100, "output_tokens": 50, "total_tokens": 150},
+    )
+    fake_llm = GenericFakeChatModel(messages=iter([fake_msg]))
+    service = LLMService(custom_llm=fake_llm)
+
+    doc, tokens = await service.generate_full_architecture_docs(
+        repo_url="https://github.com/test/clean-app",
+        repo_name="clean-app",
+        file_tree="src/App.tsx",
+        manifest_content="",
+        readme_content="",
+        source_code_bundle="",
+    )
+
+    assert tokens == 150
+    assert not doc.startswith("[{")
+    assert "signature" not in doc
+    assert "## 1. Propósito General del Sistema" in doc
+    assert "Detalles del sistema." in doc
+
+
 def test_no_deprecated_langchain_prompts_imported():
     """Asegura que no exista ningún import obsoleto de 'langchain.prompts' en la aplicación (M-11)."""
     import os
