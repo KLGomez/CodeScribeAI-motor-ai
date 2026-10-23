@@ -124,6 +124,40 @@ class LLMService:
         model = llm or self.get_llm()
         return prompt_template | model | StrOutputParser()
 
+    @staticmethod
+    def _extract_text_from_ai_message(content: Any) -> str:
+        """Extrae de forma limpia el texto de AIMessage.content, incluso si viene en bloques/listas o dicts con extras."""
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts = []
+            for item in content:
+                if isinstance(item, str):
+                    parts.append(item)
+                elif isinstance(item, dict) and "text" in item:
+                    parts.append(str(item["text"]))
+                elif hasattr(item, "text"):
+                    parts.append(str(getattr(item, "text")))
+            if parts:
+                return "".join(parts)
+        return str(content)
+
+    @staticmethod
+    def _unwrap_raw_content_string(text: str) -> str:
+        """Si por algún motivo el contenido viene como string de lista python '[{\'type\': \'text\'...', lo desenvuelve."""
+        s = text.strip()
+        if (s.startswith("[{'type':") or s.startswith('[{"type":')) and ("'text':" in s or '"text":' in s):
+            try:
+                import ast
+                parsed = ast.literal_eval(s)
+                if isinstance(parsed, list):
+                    parts = [p.get("text", "") for p in parsed if isinstance(p, dict) and "text" in p]
+                    if parts:
+                        return "".join(parts)
+            except Exception:
+                pass
+        return text
+
     async def _invoke_chain_with_tokens(
         self,
         prompt_template: Any,
@@ -138,16 +172,20 @@ class LLMService:
             response = await chain.ainvoke(inputs)
 
             if isinstance(response, AIMessage):
-                text = response.content if isinstance(response.content, str) else str(response.content)
+                text = self._extract_text_from_ai_message(response.content)
                 metadata = getattr(response, "usage_metadata", None) or {}
                 tokens_used = metadata.get("total_tokens", 0)
             elif isinstance(response, str):
                 text = response
                 tokens_used = len(response) // 4
             else:
-                text = str(response)
+                try:
+                    text = StrOutputParser().invoke(response)
+                except Exception:
+                    text = self._extract_text_from_ai_message(response)
                 tokens_used = 0
 
+            text = self._unwrap_raw_content_string(text)
             return text, tokens_used
 
         except asyncio.TimeoutError:
